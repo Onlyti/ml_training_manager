@@ -4,7 +4,7 @@
   "custom_configs": [
     {
       "param": "suffix",
-      "value": "FMFM",
+      "value": "Test",
       "enabled": true
     }
   ],

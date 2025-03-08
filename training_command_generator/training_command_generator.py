@@ -11,22 +11,37 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QLabel, QLineEdit, 
                              QPushButton, QFileDialog, QCheckBox, QGroupBox,
                              QTextEdit, QScrollArea, QTabWidget, QMessageBox,
-                             QTableWidget, QTableWidgetItem, QHeaderView)
+                             QTableWidget, QTableWidgetItem, QHeaderView,
+                             QComboBox, QDialog, QDialogButtonBox, QInputDialog)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
+import pandas as pd
+import datetime
+import platform
+import csv
+
+# 구성 CSV 관리자 모듈 임포트
+from config_csv_manager import ConfigCSVManager
+from command_history_manager import CommandHistoryManager
 
 class TrainingCommandGenerator(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.json')
         self.settings = self.load_settings()
-        self.initUI()
         self.config_file = None
         self.config_data = defaultdict(dict)
         self.checkboxes = defaultdict(dict)
         self.custom_configs = []  # 사용자 정의 설정 값 저장
         self.pre_commands = []  # 사전 실행 명령어 저장
         self.env_variables = []  # 환경 변수 저장
+        
+        # CSV 관리자 초기화 (UI 초기화 전에 먼저 실행)
+        self.csv_manager = ConfigCSVManager()
+        self.command_manager = CommandHistoryManager()  # 명령어 히스토리 관리자 추가
+        
+        # UI 초기화
+        self.initUI()
         
         # 시작 시 default_config.ini 파일 로드 시도
         self.load_default_config()
@@ -130,54 +145,76 @@ class TrainingCommandGenerator(QMainWindow):
         
         main_layout.addLayout(script_layout)
         
+        # 구성 관리 레이아웃
+        config_management_layout = QHBoxLayout()
+        config_label = QLabel('구성 관리:')
+        
+        self.config_combo = QComboBox()
+        self.config_combo.setMinimumWidth(200)
+        self.update_config_combo()
+        
+        capture_config_button = QPushButton('현재 구성 캡처')
+        capture_config_button.clicked.connect(self.capture_current_config)
+        
+        load_config_button = QPushButton('구성 불러오기')
+        load_config_button.clicked.connect(self.load_selected_config)
+        
+        manage_config_button = QPushButton('구성 관리')
+        manage_config_button.clicked.connect(self.show_config_manager)
+        
+        # 구성 파일 위치 버튼 추가
+        show_files_button = QPushButton('구성 파일 위치')
+        show_files_button.clicked.connect(self.show_config_file_locations)
+        
+        config_management_layout.addWidget(config_label)
+        config_management_layout.addWidget(self.config_combo)
+        config_management_layout.addWidget(capture_config_button)
+        config_management_layout.addWidget(load_config_button)
+        config_management_layout.addWidget(manage_config_button)
+        config_management_layout.addWidget(show_files_button)
+        
+        main_layout.addLayout(config_management_layout)
+        
         # Tabs
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs)
         
         # Section for displaying config options
-        self.system_tab = QWidget()
         self.config_tab = QWidget()
         self.custom_tab = QWidget()  # 사용자 정의 설정
         self.pre_commands_tab = QWidget()  # 사전 실행 명령어 탭
         self.env_variables_tab = QWidget()  # 환경 변수 탭
+        self.command_history_tab = QWidget()  # 명령어 히스토리 탭 추가
         
-        # 탭 추가 순서 변경 (시스템 탭이 먼저 오도록)
-        self.tabs.addTab(self.env_variables_tab, 'GPU/환경 변수')  # 환경 변수를 첫 번째 탭으로
-        self.tabs.addTab(self.system_tab, '시스템 설정')
-        self.tabs.addTab(self.config_tab, '학습 설정')
+        # 탭 추가
+        self.tabs.addTab(self.env_variables_tab, 'GPU/환경 변수')
+        self.tabs.addTab(self.config_tab, '설정 옵션')
         self.tabs.addTab(self.custom_tab, '사용자 정의 설정')
         self.tabs.addTab(self.pre_commands_tab, '사전 명령어')
+        self.tabs.addTab(self.command_history_tab, '명령어 히스토리')
         
         # Setup layouts for tabs
-        self.system_layout = QVBoxLayout()
         self.config_layout = QVBoxLayout()
         self.custom_layout = QVBoxLayout()
         self.pre_commands_layout = QVBoxLayout()
         self.env_variables_layout = QVBoxLayout()
+        self.command_history_layout = QVBoxLayout()
         
-        self.system_tab.setLayout(self.system_layout)
         self.config_tab.setLayout(self.config_layout)
         self.custom_tab.setLayout(self.custom_layout)
         self.pre_commands_tab.setLayout(self.pre_commands_layout)
         self.env_variables_tab.setLayout(self.env_variables_layout)
+        self.command_history_tab.setLayout(self.command_history_layout)
         
-        # Scroll areas for each tab
+        # Scroll areas for config tab
         self.config_scroll = QScrollArea()
         self.config_scroll.setWidgetResizable(True)
         self.config_layout.addWidget(self.config_scroll)
-        
-        self.system_scroll = QScrollArea()
-        self.system_scroll.setWidgetResizable(True)
-        self.system_layout.addWidget(self.system_scroll)
         
         # Content widgets for scroll areas
         self.config_content = QWidget()
         self.config_scroll.setWidget(self.config_content)
         self.config_content_layout = QVBoxLayout(self.config_content)
-        
-        self.system_content = QWidget()
-        self.system_scroll.setWidget(self.system_content)
-        self.system_content_layout = QVBoxLayout(self.system_content)
         
         # 사용자 정의 설정 탭 구성
         self.setup_custom_config_tab()
@@ -188,21 +225,44 @@ class TrainingCommandGenerator(QMainWindow):
         # 환경 변수 탭 구성
         self.setup_env_variables_tab()
         
+        # 명령어 히스토리 탭 구성
+        self.setup_command_history_tab()
+        
         # Command output section
         command_group = QGroupBox('생성된 명령어')
         command_layout = QVBoxLayout()
+        
+        # 설명 입력 추가
+        description_layout = QHBoxLayout()
+        description_label = QLabel('명령어 설명:')
+        self.command_description_edit = QLineEdit()
+        self.command_description_edit.setPlaceholderText('명령어 설명 (히스토리에 저장됨)')
+        
+        description_layout.addWidget(description_label)
+        description_layout.addWidget(self.command_description_edit)
+        
+        command_layout.addLayout(description_layout)
         
         self.command_output = QTextEdit()
         self.command_output.setReadOnly(True)
         command_layout.addWidget(self.command_output)
         
+        button_layout = QHBoxLayout()
+        
         generate_button = QPushButton('명령어 생성')
         generate_button.clicked.connect(self.generate_command)
-        command_layout.addWidget(generate_button)
         
         run_button = QPushButton('명령어 실행')
         run_button.clicked.connect(self.run_command)
-        command_layout.addWidget(run_button)
+        
+        save_button = QPushButton('히스토리에 저장')
+        save_button.clicked.connect(self.save_command_to_history)
+        
+        button_layout.addWidget(generate_button)
+        button_layout.addWidget(run_button)
+        button_layout.addWidget(save_button)
+        
+        command_layout.addLayout(button_layout)
         
         command_group.setLayout(command_layout)
         main_layout.addWidget(command_group)
@@ -518,45 +578,91 @@ class TrainingCommandGenerator(QMainWindow):
         
         # Clear the content layouts
         self._clear_layout(self.config_content_layout)
-        self._clear_layout(self.system_content_layout)
         
-        # Parse config file
+        # Parse config file - 원본 대소문자 유지를 위해 옵션 추가
         config = configparser.ConfigParser()
-        config.read(config_path, encoding='utf-8')
+        
+        # 대소문자 유지 옵션을 추가
+        try:
+            # ConfigParser 인스턴스 생성 시 대소문자를 유지하는 옵션 설정
+            config._sections = dict()  # 섹션 이름 대소문자 유지를 위한 설정
+            
+            # 파일을 직접 읽어서 처리
+            with open(config_path, encoding='utf-8') as f:
+                config.read_file(f)
+            
+            # 디버그 메시지
+            print(f"INI 파일 대소문자 유지 로드 성공: {config.sections()}")
+            
+        except Exception as e:
+            # 실패 시 기본 방식으로 다시 시도
+            print(f"대소문자 유지 로드 실패, 기본 방식으로 재시도: {e}")
+            config = configparser.ConfigParser()
+            config.read(config_path, encoding='utf-8')
         
         # Process sections and options
         for section in config.sections():
-            is_system = section.lower().startswith('system_')
-            
             # 새 컨셉: 섹션이 명령어 파라미터 이름, 변수는 UI에 표시할 이름, 값은 실제 명령어 값
             param_name = section  # 명령어 파라미터 이름
             
-            # Choose appropriate layout based on section type
-            layout = self.system_content_layout if is_system else self.config_content_layout
+            # 모든 설정을 config_content_layout에 추가 (시스템 설정 구분 없이)
+            layout = self.config_content_layout
             
             # Create a group box for each section (parameter)
             group_box = QGroupBox(param_name)
             group_layout = QVBoxLayout()
             
-            checkbox_layout = QHBoxLayout()
-            checkbox_group = []
+            # 체크박스를 그리드 레이아웃으로 변경하여 여러 줄로 표시되도록 함
+            checkbox_grid = QGridLayout()
+            checkbox_grid.setAlignment(Qt.AlignLeft)
+            checkbox_grid.setHorizontalSpacing(10)  # 체크박스 간 간격 설정
+            checkbox_grid.setVerticalSpacing(5)     # 줄 간 간격 설정
             
-            for display_name in config[section]:
-                # display_name: UI에 표시할 이름
-                cmd_value = config[section][display_name]  # 실제 명령어 값
+            # 체크박스 관리 구조 변경: 배열 -> 딕셔너리 (키로 원래 이름 사용)
+            checkbox_dict = {}
+            
+            # 섹션 내 옵션이 없는 경우
+            if len(config[section]) == 0:
+                # 빈 섹션인 경우 "ON" 옵션 하나만 추가
+                checkbox = QCheckBox("ON")
+                checkbox.setChecked(False)
+                checkbox.setToolTip("빈 섹션: 값 없이 파라미터만 추가")
+                checkbox_grid.addWidget(checkbox, 0, 0)
+                checkbox_dict["ON"] = checkbox
+            else:
+                # 섹션 내 옵션이 있는 경우 그리드에 추가 (한 줄에 최대 4개)
+                max_columns = 4
+                row, col = 0, 0
                 
-                checkbox = QCheckBox(display_name)
-                checkbox.setChecked(True)  # Default all to checked
-                checkbox.setToolTip(f"실제 값: {cmd_value}")  # 툴크로 실제 값 표시
-                checkbox_layout.addWidget(checkbox)
-                checkbox_group.append((display_name, cmd_value, checkbox))
+                for option_name in config[section]:
+                    # option_name: INI 파일에 적힌 원본 이름 (대소문자 유지)
+                    cmd_value = config[section][option_name]  # 실제 명령어 값
+                    
+                    # 체크박스 레이블에 원본 이름 사용 (대소문자 유지)
+                    checkbox = QCheckBox(str(option_name))  # str()로 감싸서 대소문자 유지
+                    checkbox.setChecked(False)  # Default all to checked
+                    checkbox.setToolTip(f"실제 값: {cmd_value}")  # 툴큁으로 실제 값 표시
+                    
+                    # 그리드에 체크박스 추가
+                    checkbox_grid.addWidget(checkbox, row, col)
+                    checkbox_dict[option_name] = checkbox
+                    
+                    # 다음 위치 계산
+                    col += 1
+                    if col >= max_columns:
+                        col = 0
+                        row += 1
             
-            group_layout.addLayout(checkbox_layout)
+            # 체크박스 그리드를 전체 레이아웃에 추가
+            group_layout.addLayout(checkbox_grid)
             group_box.setLayout(group_layout)
             layout.addWidget(group_box)
             
             # Store checkboxes and values for later reference
-            self.checkboxes[section] = checkbox_group
+            self.checkboxes[section] = checkbox_dict
+            
+            # 디버그용: 체크박스 정보 출력
+            print(f"섹션 '{section}'에 체크박스 {len(checkbox_dict)}개 생성")
         
         # Message if successful
         self.show_status_message('설정 파일을 성공적으로 로드했습니다.')
@@ -790,63 +896,249 @@ class TrainingCommandGenerator(QMainWindow):
             elif var.get('name') == "TF_MEMORY_LIMIT" and var.get('enabled', True):
                 self.gpu_memory_edit.setText(var.get('value', ''))
     
-    def generate_command(self):
-        if not self.checkboxes and not self.custom_configs and not self.env_variables:
-            self.show_status_message('먼저 설정 파일을 로드하거나 사용자 정의 설정 또는 환경 변수를 추가해주세요.', True)
+    def setup_command_history_tab(self):
+        """명령어 히스토리 탭 설정"""
+        # 설명 레이블
+        description_label = QLabel("이전에 생성/실행된 명령어 목록입니다. 재사용하거나 삭제할 수 있습니다.")
+        description_label.setWordWrap(True)
+        self.command_history_layout.addWidget(description_label)
+        
+        # 테이블 위젯 생성
+        self.command_history_table = QTableWidget()
+        self.command_history_table.setColumnCount(4)
+        self.command_history_table.setHorizontalHeaderLabels(['ID', '시간', '설명', '작업'])
+        self.command_history_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.command_history_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.command_history_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.command_history_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        
+        # 버튼 영역
+        button_layout = QHBoxLayout()
+        refresh_button = QPushButton('새로고침')
+        refresh_button.clicked.connect(self.refresh_command_history)
+        clear_button = QPushButton('모두 삭제')
+        clear_button.clicked.connect(self.clear_command_history)
+        
+        button_layout.addWidget(refresh_button)
+        button_layout.addWidget(clear_button)
+        
+        # 레이아웃에 위젯 추가
+        self.command_history_layout.addWidget(self.command_history_table)
+        self.command_history_layout.addLayout(button_layout)
+        
+        # 명령어 히스토리 로드
+        self.refresh_command_history()
+    
+    def refresh_command_history(self):
+        """명령어 히스토리 새로고침"""
+        self.command_history_table.setRowCount(0)
+        
+        # 모든 명령어 가져오기
+        commands = self.command_manager.get_all_commands()
+        commands.reverse()  # 최신 명령어가 위에 오도록 역순 정렬
+        
+        # 테이블에 표시
+        for i, cmd in enumerate(commands):
+            self.command_history_table.insertRow(i)
+            
+            # ID
+            id_item = QTableWidgetItem(cmd.get('id', ''))
+            self.command_history_table.setItem(i, 0, id_item)
+            
+            # 시간
+            time_item = QTableWidgetItem(cmd.get('timestamp', ''))
+            self.command_history_table.setItem(i, 1, time_item)
+            
+            # 설명
+            desc_item = QTableWidgetItem(cmd.get('description', ''))
+            desc_item.setToolTip(cmd.get('command', ''))
+            self.command_history_table.setItem(i, 2, desc_item)
+            
+            # 작업 버튼
+            button_widget = QWidget()
+            button_layout = QHBoxLayout(button_widget)
+            button_layout.setContentsMargins(0, 0, 0, 0)
+            
+            load_button = QPushButton('로드')
+            load_button.clicked.connect(lambda _, cmd_id=cmd.get('id'): self.load_command_from_history(cmd_id))
+            
+            run_button = QPushButton('실행')
+            run_button.clicked.connect(lambda _, cmd_id=cmd.get('id'): self.run_command_from_history(cmd_id))
+            
+            delete_button = QPushButton('삭제')
+            delete_button.clicked.connect(lambda _, cmd_id=cmd.get('id'): self.delete_command_from_history(cmd_id))
+            
+            button_layout.addWidget(load_button)
+            button_layout.addWidget(run_button)
+            button_layout.addWidget(delete_button)
+            
+            self.command_history_table.setCellWidget(i, 3, button_widget)
+    
+    def load_command_from_history(self, command_id):
+        """히스토리에서 명령어 로드"""
+        command = self.command_manager.get_command_by_id(command_id)
+        if command:
+            self.command_output.setText(command.get('command', ''))
+            self.command_description_edit.setText(command.get('description', ''))
+            self.show_status_message(f'명령어 #{command_id}를 로드했습니다.')
+    
+    def run_command_from_history(self, command_id):
+        """히스토리에서 명령어 실행"""
+        command = self.command_manager.get_command_by_id(command_id)
+        if command:
+            self.command_output.setText(command.get('command', ''))
+            self.command_description_edit.setText(command.get('description', ''))
+            self.run_command()
+    
+    def delete_command_from_history(self, command_id):
+        """히스토리에서 명령어 삭제"""
+        # 삭제 확인 다이얼로그
+        reply = QMessageBox.question(self, '명령어 삭제', 
+                                     f'명령어 #{command_id}를 삭제하시겠습니까?',
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            success = self.command_manager.delete_command(command_id)
+            if success:
+                self.show_status_message(f'명령어 #{command_id}가 삭제되었습니다.')
+                self.refresh_command_history()
+            else:
+                self.show_status_message('명령어 삭제 중 오류가 발생했습니다.', True)
+    
+    def clear_command_history(self):
+        """모든 명령어 히스토리 삭제"""
+        # 삭제 확인 다이얼로그
+        reply = QMessageBox.question(self, '모든 명령어 삭제', 
+                                     '모든 명령어 히스토리를 삭제하시겠습니까?',
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            # 모든 명령어 가져와서 하나씩 삭제
+            commands = self.command_manager.get_all_commands()
+            for cmd in commands:
+                self.command_manager.delete_command(cmd.get('id'))
+            
+            self.show_status_message('모든 명령어 히스토리가 삭제되었습니다.')
+            self.refresh_command_history()
+    
+    def save_command_to_history(self):
+        """현재 명령어를 히스토리에 저장"""
+        command = self.command_output.toPlainText().strip()
+        description = self.command_description_edit.text().strip()
+        
+        if not command:
+            self.show_status_message('저장할 명령어가 없습니다.', True)
             return
         
-        # 사용자가 지정한 학습 스크립트 파일 사용
-        script_name = self.script_edit.text().strip()
-        if not script_name:
-            script_name = "train.py"  # 비어 있으면 기본값 사용
+        if not description:
+            description = f"생성된 명령어 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
-        # 스크립트 이름 업데이트
-        self.settings['last_script'] = script_name
-        self.save_settings()
-        
-        # 환경 변수 부분 생성
-        env_vars_cmd = ""
-        for row in range(self.env_variables_table.rowCount()):
-            name = self.env_variables_table.item(row, 0).text().strip()
-            value = self.env_variables_table.item(row, 1).text().strip()
-            is_enabled = self.env_variables_table.item(row, 2).checkState() == Qt.Checked
+        command_id = self.command_manager.add_command(command, description)
+        if command_id:
+            self.show_status_message(f'명령어가 히스토리에 저장되었습니다. (ID: {command_id})')
+            self.refresh_command_history()
+        else:
+            self.show_status_message('명령어 저장 중 오류가 발생했습니다.', True)
+    
+    def generate_command(self):
+        """현재 UI 상태를 기반으로 명령어 생성"""
+        script_path = self.script_edit.text().strip()
+        if not script_path:
+            self.command_output.setText("스크립트 파일을 선택해주세요.")
+            return
             
-            if name and value and is_enabled:
-                env_vars_cmd += f"{name}={value} "
+        # 파이썬 실행 명령어
+        python_cmd = "python" if platform.system() == "Windows" else "python3"
+        command_parts = [python_cmd, script_path]
         
-        # 스크립트 명령어 부분 생성
-        command = script_name
-        
-        # INI 파일에서 로드한 설정 추가
-        for param_name in self.checkboxes:
+        # 각 섹션별 선택된 옵션 처리
+        for param_name, checkboxes in self.checkboxes.items():
             selected_values = []
+            empty_section = False
             
-            for display_name, cmd_value, checkbox in self.checkboxes[param_name]:
+            # 체크박스 딕셔너리 반복
+            for option_name, checkbox in checkboxes.items():
                 if checkbox.isChecked():
-                    selected_values.append(cmd_value)
+                    # 빈 섹션 처리: ON 옵션이 체크되고 다른 옵션이 없으면 빈 섹션으로 간주
+                    if option_name == "ON" and len(checkboxes) == 1:
+                        empty_section = True
+                    else:
+                        # INI 파일에서 실제 값 가져오기
+                        if self.config_file and os.path.exists(self.config_file):
+                            try:
+                                config = configparser.ConfigParser()
+                                with open(self.config_file, encoding='utf-8') as f:
+                                    config.read_file(f)
+                                
+                                # INI 파일에서 해당 옵션 값 가져오기
+                                if param_name in config and option_name in config[param_name]:
+                                    value = config[param_name][option_name]
+                                    if value:  # 값이 있으면 추가
+                                        selected_values.append(value)
+                                    else:  # 값이 없으면 옵션 이름만 추가
+                                        selected_values.append(option_name)
+                                else:
+                                    # INI에 없는 경우 옵션 이름 그대로 사용
+                                    selected_values.append(option_name)
+                            except Exception as e:
+                                print(f"INI 파일 읽기 오류: {e}")
+                                selected_values.append(option_name)
+                        else:
+                            # INI 파일이 없는 경우 옵션 이름 사용
+                            selected_values.append(option_name)
             
-            if selected_values:
-                command += f" -{param_name}"
-                for val in selected_values:
-                    command += f" {val}"
+            # 빈 섹션이면 파라미터만 추가
+            if empty_section:
+                command_parts.append(f"--{param_name}")
+            # 파라미터 값이 있으면 추가
+            elif selected_values:
+                # 여러 값이 있으면 쉼표로 구분하여 추가
+                values_str = ",".join(selected_values)
+                command_parts.append(f"--{param_name}={values_str}")
         
-        # 사용자 정의 설정 추가
-        # 현재 테이블에서 직접 읽기 (저장된 값이 아닌 현재 UI에 표시된 값 사용)
-        for row in range(self.custom_config_table.rowCount()):
-            param = self.custom_config_table.item(row, 0).text().strip()
-            value = self.custom_config_table.item(row, 1).text().strip()
-            is_enabled = self.custom_config_table.item(row, 2).checkState() == Qt.Checked
+        # 환경 변수 처리
+        env_vars = []
+        for var in self.env_variables:
+            if var.get('enabled', False):
+                env_vars.append(f"{var['name']}={var['value']}")
+        
+        # 사용자 정의 설정 처리
+        for config in self.custom_configs:
+            if config.get('enabled', False):
+                command_parts.append(f"--{config['param']}={config['value']}")
+        
+        # 최종 명령어 생성
+        env_vars_str = " ".join(env_vars)
+        pre_commands_str = ""
+        
+        # 사전 실행 명령어 처리
+        pre_commands_enabled = []
+        for cmd in self.pre_commands:
+            if cmd.get('enabled', False):
+                pre_commands_enabled.append(cmd['command'])
+        
+        if pre_commands_enabled:
+            pre_commands_str = " && ".join(pre_commands_enabled) + " && "
+        
+        # 환경 변수가 있을 경우 추가
+        if env_vars:
+            # Windows는 SET, Linux/Mac은 export 사용
+            if platform.system() == "Windows":
+                env_cmd = " && ".join([f"SET {var}" for var in env_vars]) + " && "
+            else:
+                env_cmd = " ".join([f"export {var}" for var in env_vars]) + " && "
             
-            if param and is_enabled:  # 파라미터가 있고 활성화된 경우만 추가
-                command += f" -{param}"
-                if value:  # 값이 있는 경우만 추가
-                    command += f" {value}"
+            final_command = f"{pre_commands_str}{env_cmd}{' '.join(command_parts)}"
+        else:
+            final_command = f"{pre_commands_str}{' '.join(command_parts)}"
         
-        # 환경 변수와 스크립트 명령어 조합
-        full_command = env_vars_cmd + command
-        
-        self.command_output.setText(full_command)
+        # 명령어 출력
+        self.command_output.setText(final_command)
         self.show_status_message('명령어가 생성되었습니다.')
+        
+        # 자동으로 히스토리에 저장 (설명은 현재 날짜/시간 사용)
+        if self.command_description_edit.text().strip() == "":
+            self.command_description_edit.setText(f"생성된 명령어 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     def run_command(self):
         command = self.command_output.toPlainText()
@@ -855,6 +1147,13 @@ class TrainingCommandGenerator(QMainWindow):
             return
         
         try:
+            # 명령어 자동 저장 (실행 시)
+            description = self.command_description_edit.text().strip()
+            if not description:
+                description = f"실행된 명령어 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            command_id = self.command_manager.add_command(command, description)
+            
             # 운영체제 별로 다른 방식으로 새 터미널에서 명령어 실행
             platform = sys.platform.lower()
             
@@ -924,10 +1223,436 @@ class TrainingCommandGenerator(QMainWindow):
             
             self.show_status_message(message)
             
+            # 히스토리 업데이트
+            self.refresh_command_history()
+            
         except subprocess.CalledProcessError as e:
             self.show_status_message(f'명령어 실행 중 오류가 발생했습니다: {e.stderr}', True)
         except Exception as e:
             self.show_status_message(f'명령어 실행 중 예상치 못한 오류가 발생했습니다: {str(e)}', True)
+
+    def update_config_combo(self):
+        """구성 콤보박스 업데이트"""
+        try:
+            # 현재 선택된 구성 저장
+            current_config = self.config_combo.currentText()
+            
+            # 구성 콤보박스 초기화
+            self.config_combo.clear()
+            self.config_combo.addItem("")  # 빈 항목 추가
+            
+            # CSV 파일이 존재하는지 확인
+            if os.path.exists(self.csv_manager.csv_file_path):
+                # CSV 파일 읽기
+                configs = []
+                with open(self.csv_manager.csv_file_path, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f)
+                    rows = list(reader)
+                    
+                    if len(rows) >= 3:  # 헤더 2행 + 데이터 1행 이상
+                        for i, row in enumerate(rows[2:]):
+                            if row and len(row) > 0:
+                                # 첫 번째 열에 구성 번호 또는 이름이 있음
+                                config_name = row[0]
+                                configs.append(config_name)
+                
+                # 구성 콤보박스에 추가
+                for config_name in configs:
+                    self.config_combo.addItem(f"{config_name}")
+            
+            # 이전에 선택된 구성 다시 선택
+            if current_config:
+                index = self.config_combo.findText(current_config)
+                if index >= 0:
+                    self.config_combo.setCurrentIndex(index)
+                    
+        except Exception as e:
+            self.show_status_message(f"구성 목록 업데이트 오류: {str(e)}", True)
+            import traceback
+            traceback.print_exc()
+    
+    def capture_current_config(self):
+        """현재 UI 설정을 캡처하여 CSV 파일에 저장"""
+        try:
+            # 체크박스 설정 캡처
+            config_data = {}
+            for section_name, section_checkboxes in self.checkboxes.items():
+                for param_name, checkbox in section_checkboxes.items():
+                    is_checked = checkbox.isChecked()
+                    
+                    # 체크박스 상태에 따라 값 설정
+                    if is_checked:
+                        # INI 파일에서 실제 값을 읽어옴
+                        value = "1"  # 기본값
+                        if self.config_file and os.path.exists(self.config_file):
+                            try:
+                                config = configparser.ConfigParser()
+                                config.read(self.config_file, encoding='utf-8')
+                                if section_name in config and param_name in config[section_name]:
+                                    value = config[section_name][param_name]
+                            except Exception as e:
+                                print(f"INI 파일 읽기 오류(값 추출): {e}")
+                    else:
+                        value = "0"  # 체크 해제된 경우 0으로 저장
+                        
+                    if section_name not in config_data:
+                        config_data[section_name] = {}
+                    
+                    config_data[section_name][param_name] = {
+                        'display_name': param_name,
+                        'checked': is_checked,
+                        'value': value
+                    }
+            
+            # 명칭 입력하기
+            config_name, ok = QInputDialog.getText(
+                self, '구성 저장', '구성 이름 (빈 칸은 자동 번호 부여):',
+                QLineEdit.Normal, '')
+            
+            if not ok:
+                return
+            
+            # 구성 저장
+            success, idx = self.csv_manager.capture_current_config(
+                config_data, self.env_variables, self.custom_configs, self.pre_commands, config_name)
+            
+            if success:
+                self.show_status_message(f"구성 {idx}가 저장되었습니다.")
+                self.update_config_combo()
+                
+                # 저장된 구성 선택
+                if idx:
+                    for i in range(self.config_combo.count()):
+                        if self.config_combo.itemText(i) == str(idx):
+                            self.config_combo.setCurrentIndex(i)
+                            break
+            else:
+                self.show_status_message("구성 저장 중 오류가 발생했습니다.", True)
+                
+        except Exception as e:
+            self.show_status_message(f"구성 저장 오류: {str(e)}", True)
+            import traceback
+            traceback.print_exc()
+    
+    def load_selected_config(self):
+        """현재 선택된 구성 로드"""
+        try:
+            config_idx = self.config_combo.currentText()
+            if not config_idx:
+                return
+            
+            # CSV 파일에서 구성 로드
+            result = self.csv_manager.load_config_from_csv(config_idx)
+            if result is None:
+                self.show_status_message("구성을 로드할 수 없습니다.", True)
+                return
+                
+            checkboxes_config, env_variables, custom_configs, pre_commands = result
+            
+            # 먼저 모든 체크박스를 해제
+            for section_name, section_checkboxes in self.checkboxes.items():
+                for param_name, checkbox in section_checkboxes.items():
+                    checkbox.setChecked(False)
+                    
+            # 디버그용: 로드된 구성 출력
+            print(f"로드된 체크박스 구성: {checkboxes_config}")
+            
+            # 체크박스 설정 적용
+            for section_name, section_config in checkboxes_config.items():
+                if section_name in self.checkboxes:
+                    for param_name, param_config in section_config.items():
+                        if param_name in self.checkboxes[section_name]:
+                            is_checked = param_config.get('checked', False)  # 기본값은 체크 해제됨
+                            print(f"체크박스 설정 적용: {section_name}.{param_name}={is_checked}")
+                            self.checkboxes[section_name][param_name].setChecked(is_checked)
+                        else:
+                            print(f"체크박스를 찾을 수 없음: {section_name}.{param_name}")
+                else:
+                    # 섹션을 찾을 수 없는 경우
+                    print(f"섹션을 찾을 수 없음: {section_name}")
+            
+            # 환경 변수 설정
+            self.env_variables = env_variables
+            self.load_env_variables()
+            
+            # 사용자 정의 설정
+            self.custom_configs = custom_configs
+            self.load_custom_configs()
+            
+            # 사전 실행 명령어
+            self.pre_commands = pre_commands
+            self.load_pre_commands()
+            
+            # 명령어 자동 생성
+            self.generate_command()
+            
+            self.show_status_message(f"구성 {config_idx}이(가) 로드되었습니다.")
+            
+        except Exception as e:
+            self.show_status_message(f"구성 로드 오류: {str(e)}", True)
+            import traceback
+            traceback.print_exc()
+
+    def show_config_manager(self):
+        """구성 관리 다이얼로그 표시"""
+        dialog = ConfigManagerDialog(self, self.csv_manager)
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
+            self.update_config_combo()
+            self.show_status_message('구성 관리가 완료되었습니다.')
+
+    def show_config_file_locations(self):
+        """구성 파일 위치 정보 표시"""
+        # 현재 사용 중인 모든 구성 파일 경로
+        config_files = {
+            "설정 파일 (settings.json)": self.settings_file,
+            "CSV 구성 파일 (model_configs.csv)": self.csv_manager.csv_file_path,
+            "현재 INI 파일": self.config_file if self.config_file else "로드된 INI 파일 없음",
+            "기본 INI 파일": self.settings.get('default_ini_path', '설정된 기본 INI 파일 없음')
+        }
+        
+        # 파일 위치 다이얼로그 표시
+        dialog = ConfigFileLocationsDialog(self, config_files)
+        dialog.exec_()
+
+# 구성 관리 다이얼로그
+class ConfigManagerDialog(QDialog):
+    def __init__(self, parent, csv_manager):
+        super().__init__(parent)
+        self.parent = parent
+        self.csv_manager = csv_manager
+        self.setWindowTitle('구성 관리')
+        self.setMinimumSize(500, 400)
+        self.initUI()
+        
+    def initUI(self):
+        layout = QVBoxLayout()
+        
+        # 구성 목록 테이블
+        self.config_table = QTableWidget()
+        self.config_table.setColumnCount(2)
+        self.config_table.setHorizontalHeaderLabels(['구성 번호', '작업'])
+        # 구성 번호 열은 내용에 맞게 자동 조절, 작업 열이 남는 공간을 차지하도록 설정
+        self.config_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.config_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.config_table.setSelectionBehavior(QTableWidget.SelectRows)
+        
+        # 테이블 행 높이 조정
+        self.config_table.verticalHeader().setDefaultSectionSize(36)
+        # 헤더 보이지 않게 설정
+        self.config_table.verticalHeader().setVisible(False)
+        
+        layout.addWidget(self.config_table)
+        
+        # 버튼 영역
+        button_layout = QHBoxLayout()
+        
+        change_idx_button = QPushButton('번호 변경')
+        change_idx_button.clicked.connect(self.change_config_idx)
+        
+        delete_button = QPushButton('삭제')
+        delete_button.clicked.connect(self.delete_config)
+        
+        refresh_button = QPushButton('새로고침')
+        refresh_button.clicked.connect(self.refresh_config_list)
+        
+        button_layout.addWidget(change_idx_button)
+        button_layout.addWidget(delete_button)
+        button_layout.addWidget(refresh_button)
+        
+        layout.addLayout(button_layout)
+        
+        # 닫기 버튼
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.accept)
+        layout.addWidget(buttons)
+        
+        self.setLayout(layout)
+        
+        # 초기 구성 목록 로드
+        self.refresh_config_list()
+    
+    def refresh_config_list(self):
+        """구성 목록 새로고침"""
+        self.config_table.setRowCount(0)
+        
+        configs = self.csv_manager.get_available_configs()
+        for i, config in enumerate(configs):
+            self.config_table.insertRow(i)
+            
+            # 구성 번호
+            try:
+                # 부동 소수점 문자열('1.0') 처리
+                if config.replace('.', '', 1).isdigit() and '.' in config:
+                    config_idx = int(float(config))
+                else:
+                    config_idx = int(config)
+                idx_item = QTableWidgetItem(f"구성 #{config_idx}")
+            except (ValueError, TypeError):
+                # 숫자로 변환할 수 없는 경우 원본 그대로 표시
+                idx_item = QTableWidgetItem(f"구성 #{config}")
+                
+            idx_item.setTextAlignment(Qt.AlignCenter)  # 가운데 정렬
+            self.config_table.setItem(i, 0, idx_item)
+            
+            # 작업 버튼
+            button_widget = QWidget()
+            button_layout = QHBoxLayout(button_widget)
+            # 여백 최소화
+            button_layout.setContentsMargins(2, 0, 2, 0)
+            button_layout.setSpacing(4)
+            
+            change_idx_button = QPushButton('번호 변경')
+            change_idx_button.clicked.connect(lambda _, c=config: self.change_config_idx(c))
+            change_idx_button.setMaximumWidth(70)
+            
+            delete_button = QPushButton('삭제')
+            delete_button.clicked.connect(lambda _, c=config: self.delete_config(c))
+            delete_button.setMaximumWidth(50)
+            
+            button_layout.addWidget(change_idx_button)
+            button_layout.addWidget(delete_button)
+            
+            self.config_table.setCellWidget(i, 1, button_widget)
+        
+        # 내용에 맞게 열 너비 조정
+        self.config_table.resizeColumnsToContents()
+        # 내용에 맞게 행 높이 조정
+        self.config_table.resizeRowsToContents()
+    
+    def change_config_idx(self, config=None):
+        """구성 인덱스 변경"""
+        # 선택된 구성 가져오기
+        if config is None:
+            selected_rows = self.config_table.selectedItems()
+            if not selected_rows:
+                QMessageBox.warning(self, '경고', '번호를 변경할 구성을 선택해주세요.')
+                return
+            config_text = selected_rows[0].text()
+            config = config_text.split('#')[1]
+        
+        # 새 인덱스 입력 다이얼로그
+        new_idx, ok = QInputDialog.getText(self, '구성 번호 변경', 
+                                         f'구성 #{config}의 새 번호를 입력하세요:', 
+                                         QLineEdit.Normal, '')
+        if not ok or not new_idx or new_idx == config:
+            return
+            
+        # 숫자가 아니면 오류
+        if not new_idx.isdigit():
+            QMessageBox.warning(self, '오류', '번호는 숫자여야 합니다.')
+            return
+        
+        # 이름 변경
+        success = self.csv_manager.rename_config(config, new_idx)
+        if success:
+            QMessageBox.information(self, '성공', f'구성 번호가 #{new_idx}(으)로 변경되었습니다.')
+            self.refresh_config_list()
+        else:
+            QMessageBox.warning(self, '오류', '구성 번호 변경 중 오류가 발생했습니다.')
+    
+    def delete_config(self, config=None):
+        """구성 삭제"""
+        # 선택된 구성 가져오기
+        if config is None:
+            selected_rows = self.config_table.selectedItems()
+            if not selected_rows:
+                QMessageBox.warning(self, '경고', '삭제할 구성을 선택해주세요.')
+                return
+            config_text = selected_rows[0].text()
+            config = config_text.split('#')[1]
+        
+        # 삭제 확인 다이얼로그
+        reply = QMessageBox.question(self, '구성 삭제', 
+                                    f'구성 #{config}을(를) 삭제하시겠습니까?',
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            # 구성 삭제
+            success = self.csv_manager.delete_config(config)
+            if success:
+                QMessageBox.information(self, '성공', f'구성 #{config}이(가) 삭제되었습니다.')
+                self.refresh_config_list()
+            else:
+                QMessageBox.warning(self, '오류', '구성 삭제 중 오류가 발생했습니다.')
+
+# 구성 파일 위치 다이얼로그
+class ConfigFileLocationsDialog(QDialog):
+    def __init__(self, parent, config_files):
+        super().__init__(parent)
+        self.setWindowTitle('구성 파일 위치')
+        self.setMinimumSize(700, 400)
+        self.initUI(config_files)
+        
+    def initUI(self, config_files):
+        layout = QVBoxLayout()
+        
+        # 설명 레이블
+        description = QLabel("프로그램에서 사용하는 구성 파일의 위치입니다.")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+        
+        # 파일 위치 테이블
+        self.files_table = QTableWidget()
+        self.files_table.setColumnCount(3)
+        self.files_table.setHorizontalHeaderLabels(['파일 종류', '경로', '작업'])
+        self.files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        
+        # 테이블에 파일 정보 추가
+        self.files_table.setRowCount(len(config_files))
+        for i, (file_type, file_path) in enumerate(config_files.items()):
+            # 파일 종류
+            type_item = QTableWidgetItem(file_type)
+            self.files_table.setItem(i, 0, type_item)
+            
+            # 파일 경로
+            path_item = QTableWidgetItem(file_path)
+            path_item.setToolTip(file_path)
+            self.files_table.setItem(i, 1, path_item)
+            
+            # 작업 버튼
+            button_widget = QWidget()
+            button_layout = QHBoxLayout(button_widget)
+            button_layout.setContentsMargins(0, 0, 0, 0)
+            
+            # 파일 존재하는 경우에만 버튼 활성화
+            if os.path.exists(file_path):
+                open_folder_button = QPushButton('폴더 열기')
+                open_folder_button.clicked.connect(lambda _, path=file_path: self.open_containing_folder(path))
+                button_layout.addWidget(open_folder_button)
+            else:
+                # 파일이 없는 경우 비활성화된 버튼 표시
+                no_file_label = QLabel("파일 없음")
+                button_layout.addWidget(no_file_label)
+            
+            self.files_table.setCellWidget(i, 2, button_widget)
+        
+        layout.addWidget(self.files_table)
+        
+        # 닫기 버튼
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.accept)
+        layout.addWidget(buttons)
+        
+        self.setLayout(layout)
+    
+    def open_containing_folder(self, file_path):
+        """파일이 있는 폴더 열기"""
+        try:
+            folder_path = os.path.dirname(file_path)
+            
+            # 플랫폼에 따라 다른 명령어 실행
+            if sys.platform.startswith('win'):  # Windows
+                os.startfile(folder_path)
+            elif sys.platform.startswith('darwin'):  # macOS
+                subprocess.call(['open', folder_path])
+            else:  # Linux
+                subprocess.call(['xdg-open', folder_path])
+                
+        except Exception as e:
+            QMessageBox.warning(self, '오류', f'폴더를 열 수 없습니다: {str(e)}')
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
