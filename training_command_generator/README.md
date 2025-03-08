@@ -71,25 +71,43 @@ python training_command_generator.py
 
 ## INI 파일 형식
 
-INI 파일은 다음과 같은 형식을 따릅니다:
+INI 파일은 다음과 같은 새로운 형식을 따릅니다:
 
 ```ini
-[SECTION_NAME]
-parameter_name = value1, value2, value3
+[parameter_name]
+display_name1 = command_value1
+display_name2 = command_value2
 
-[SYSTEM]
-system_parameter = value1, value2
+[system_parameter_name]
+display_name1 = command_value1
+display_name2 = command_value2
 ```
 
-- 각 섹션은 대괄호 `[]`로 묶음
-- 매개변수 이름과 값은 `=`으로 구분
-- 여러 값은 쉼표로 구분
-- 섹션 이름이 "SYSTEM"으로 시작하면 "시스템 설정" 탭에 표시됨
+- 각 섹션 이름(`parameter_name`)은 명령줄 파라미터 이름으로 사용됩니다
+- 각 변수 이름(`display_name`)은 UI에 표시되는 간단한 이름입니다
+- 각 변수 값(`command_value`)은 실제 명령어에 사용되는 값입니다
+- 섹션 이름이 "system_"으로 시작하면 "시스템 설정" 탭에 표시됨
 - 그 외의 섹션은 "학습 설정" 탭에 표시됨
+
+### 예시
+
+```ini
+[batch_size]
+small = 16
+medium = 32
+large = 64
+
+[system_gpu]
+enable = true
+disable = false
+```
+
+위 설정에서 "batch_size" 섹션의 "small"을 선택하면 명령어에 `-batch_size 16`이 추가됩니다.
+만약 "medium"과 "large"도 함께 선택하면 `-batch_size 32 64`가 추가됩니다.
 
 ## 예시
 
-`sample_config.ini` 파일을 확인하여 구성 예시를 확인할 수 있습니다.
+`default_config.ini` 파일을 확인하여 구성 예시를 확인할 수 있습니다.
 
 ## 라이선스
 

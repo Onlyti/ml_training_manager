@@ -1,0 +1,13 @@
+{
+  "default_ini_path": "",
+  "last_script": "train.py",
+  "custom_configs": [
+    {
+      "param": "suffix",
+      "value": "FMFM",
+      "enabled": true
+    }
+  ],
+  "pre_commands": [],
+  "env_variables": []
+}
