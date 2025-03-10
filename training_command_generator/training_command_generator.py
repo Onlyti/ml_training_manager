@@ -625,7 +625,7 @@ class TrainingCommandGenerator(QMainWindow):
             if len(config[section]) == 0:
                 # 빈 섹션인 경우 "ON" 옵션 하나만 추가
                 checkbox = QCheckBox("ON")
-                checkbox.setChecked(False)
+                checkbox.setChecked(True)  # 기본적으로 체크됨
                 checkbox.setToolTip("빈 섹션: 값 없이 파라미터만 추가")
                 checkbox_grid.addWidget(checkbox, 0, 0)
                 checkbox_dict["ON"] = checkbox
@@ -634,14 +634,21 @@ class TrainingCommandGenerator(QMainWindow):
                 max_columns = 4
                 row, col = 0, 0
                 
+                # 첫 번째 옵션을 체크할지 여부를 추적하는 변수
+                first_option = True
+                
                 for option_name in config[section]:
                     # option_name: INI 파일에 적힌 원본 이름 (대소문자 유지)
                     cmd_value = config[section][option_name]  # 실제 명령어 값
                     
                     # 체크박스 레이블에 원본 이름 사용 (대소문자 유지)
                     checkbox = QCheckBox(str(option_name))  # str()로 감싸서 대소문자 유지
-                    checkbox.setChecked(False)  # Default all to checked
-                    checkbox.setToolTip(f"실제 값: {cmd_value}")  # 툴큁으로 실제 값 표시
+                    
+                    # 첫 번째 옵션만 체크, 나머지는 체크 해제
+                    checkbox.setChecked(first_option)
+                    first_option = False  # 첫 번째 옵션 처리 후 플래그 해제
+                    
+                    checkbox.setToolTip(f"실제 값: {cmd_value}")  # 툴툽으로 실제 값 표시
                     
                     # 그리드에 체크박스 추가
                     checkbox_grid.addWidget(checkbox, row, col)
@@ -1092,9 +1099,9 @@ class TrainingCommandGenerator(QMainWindow):
                 command_parts.append(f"--{param_name}")
             # 파라미터 값이 있으면 추가
             elif selected_values:
-                # 여러 값이 있으면 쉼표로 구분하여 추가
-                values_str = ",".join(selected_values)
-                command_parts.append(f"--{param_name}={values_str}")
+                # 여러 값이 있으면 empty space로 구분하여 추가
+                values_str = " ".join(selected_values)
+                command_parts.append(f"--{param_name} {values_str}")
         
         # 환경 변수 처리
         env_vars = []
@@ -1105,7 +1112,7 @@ class TrainingCommandGenerator(QMainWindow):
         # 사용자 정의 설정 처리
         for config in self.custom_configs:
             if config.get('enabled', False):
-                command_parts.append(f"--{config['param']}={config['value']}")
+                command_parts.append(f"--{config['param']} {config['value']}")
         
         # 최종 명령어 생성
         env_vars_str = " ".join(env_vars)

@@ -1,10 +1,15 @@
 {
   "default_ini_path": "",
-  "last_script": "train.py",
+  "last_script": "train_multi_output.py",
   "custom_configs": [
     {
       "param": "suffix",
-      "value": "Test",
+      "value": "TrajEmbSize8",
+      "enabled": true
+    },
+    {
+      "param": "config",
+      "value": "./config/multi_output_config.ini",
       "enabled": true
     }
   ],
