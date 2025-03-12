@@ -277,6 +277,10 @@ class TrainingCommandGenerator(QMainWindow):
         self.custom_config_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.custom_config_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         
+        # 셀 내용 변경 시 자동 저장 시그널 연결
+        self.custom_config_table.cellChanged.connect(self.auto_save_custom_configs)
+        self.custom_config_table.itemChanged.connect(self.auto_save_custom_configs)
+        
         # 버튼 영역
         button_layout = QHBoxLayout()
         add_row_button = QPushButton('행 추가')
@@ -296,166 +300,73 @@ class TrainingCommandGenerator(QMainWindow):
         
         # 저장된 사용자 정의 설정 로드
         self.load_custom_configs()
-    
-    def setup_pre_commands_tab(self):
-        """사전 실행 명령어 탭 설정"""
-        # 설명 레이블
-        description_label = QLabel("학습 명령어 실행 전에 실행할 명령어를 설정합니다. (예: conda activate my_env)")
-        description_label.setWordWrap(True)
-        self.pre_commands_layout.addWidget(description_label)
         
-        # 테이블 위젯 생성
-        self.pre_commands_table = QTableWidget()
-        self.pre_commands_table.setColumnCount(3)
-        self.pre_commands_table.setHorizontalHeaderLabels(['명령어', '설명', '활성화'])
-        self.pre_commands_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.pre_commands_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.pre_commands_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        
-        # 버튼 영역
-        button_layout = QHBoxLayout()
-        add_cmd_button = QPushButton('명령어 추가')
-        add_cmd_button.clicked.connect(self.add_pre_command_row)
-        delete_cmd_button = QPushButton('명령어 삭제')
-        delete_cmd_button.clicked.connect(self.delete_pre_command_row)
-        move_up_button = QPushButton('위로 이동')
-        move_up_button.clicked.connect(lambda: self.move_pre_command(-1))
-        move_down_button = QPushButton('아래로 이동')
-        move_down_button.clicked.connect(lambda: self.move_pre_command(1))
-        save_cmd_button = QPushButton('명령어 저장')
-        save_cmd_button.clicked.connect(self.save_pre_commands)
-        
-        button_layout.addWidget(add_cmd_button)
-        button_layout.addWidget(delete_cmd_button)
-        button_layout.addWidget(move_up_button)
-        button_layout.addWidget(move_down_button)
-        button_layout.addWidget(save_cmd_button)
-        
-        # 레이아웃에 위젯 추가
-        self.pre_commands_layout.addWidget(self.pre_commands_table)
-        self.pre_commands_layout.addLayout(button_layout)
-        
-        # 저장된 사전 명령어 로드
-        self.load_pre_commands()
-    
-    def add_pre_command_row(self):
-        """사전 명령어에 새 행 추가"""
-        row = self.pre_commands_table.rowCount()
-        self.pre_commands_table.insertRow(row)
-        
-        # 명령어 열
-        cmd_item = QTableWidgetItem("")
-        self.pre_commands_table.setItem(row, 0, cmd_item)
-        
-        # 설명 열
-        desc_item = QTableWidgetItem("")
-        self.pre_commands_table.setItem(row, 1, desc_item)
-        
-        # 활성화 체크박스 열
-        checkbox = QTableWidgetItem()
-        checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-        checkbox.setCheckState(Qt.Checked)
-        self.pre_commands_table.setItem(row, 2, checkbox)
-    
-    def delete_pre_command_row(self):
-        """선택한 사전 명령어 행 삭제"""
-        selected_rows = list(set([index.row() for index in self.pre_commands_table.selectedIndexes()]))
-        if not selected_rows:
-            self.show_status_message('삭제할 명령어를 선택해주세요.', True)
+    def auto_save_custom_configs(self, *args):
+        """사용자 정의 설정 자동 저장 (셀 변경 시 호출)"""
+        # 테이블이 로드 중이면 저장하지 않음 (중복 저장 방지)
+        if hasattr(self, '_loading_custom_configs') and self._loading_custom_configs:
             return
             
-        # 선택한 행을 역순으로 삭제 (인덱스 변화 방지)
-        for row in sorted(selected_rows, reverse=True):
-            self.pre_commands_table.removeRow(row)
-        
-        self.show_status_message('선택한 명령어가 삭제되었습니다.')
-    
-    def move_pre_command(self, direction):
-        """사전 명령어 순서 이동 (위/아래)"""
-        selected_rows = list(set([index.row() for index in self.pre_commands_table.selectedIndexes()]))
-        if not selected_rows:
-            self.show_status_message('이동할 명령어를 선택해주세요.', True)
-            return
-        
-        # 한 번에 하나의 행만 이동 가능
-        if len(selected_rows) > 1:
-            self.show_status_message('한 번에 하나의 명령어만 이동할 수 있습니다.', True)
-            return
-        
-        current_row = selected_rows[0]
-        target_row = current_row + direction
-        
-        # 테이블 범위를 벗어나면 이동 불가
-        if target_row < 0 or target_row >= self.pre_commands_table.rowCount():
-            return
-        
-        # 행 데이터 백업
-        command = self.pre_commands_table.item(current_row, 0).text()
-        description = self.pre_commands_table.item(current_row, 1).text()
-        is_enabled = self.pre_commands_table.item(current_row, 2).checkState()
-        
-        # 현재 행 삭제
-        self.pre_commands_table.removeRow(current_row)
-        
-        # 새 위치에 행 삽입
-        self.pre_commands_table.insertRow(target_row)
-        
-        # 데이터 복원
-        self.pre_commands_table.setItem(target_row, 0, QTableWidgetItem(command))
-        self.pre_commands_table.setItem(target_row, 1, QTableWidgetItem(description))
-        checkbox = QTableWidgetItem()
-        checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-        checkbox.setCheckState(is_enabled)
-        self.pre_commands_table.setItem(target_row, 2, checkbox)
-        
-        # 이동된 행 선택
-        self.pre_commands_table.selectRow(target_row)
-    
-    def save_pre_commands(self):
-        """사전 명령어 저장"""
-        pre_commands = []
-        for row in range(self.pre_commands_table.rowCount()):
-            command = self.pre_commands_table.item(row, 0).text().strip()
-            description = self.pre_commands_table.item(row, 1).text().strip()
-            is_enabled = self.pre_commands_table.item(row, 2).checkState() == Qt.Checked
+        # 사용자 정의 설정 저장
+        custom_configs = []
+        for row in range(self.custom_config_table.rowCount()):
+            # 행에 아이템이 모두 존재하는지 확인
+            if (self.custom_config_table.item(row, 0) is None or 
+                self.custom_config_table.item(row, 1) is None or
+                self.custom_config_table.item(row, 2) is None):
+                continue
+                
+            param = self.custom_config_table.item(row, 0).text().strip()
+            value = self.custom_config_table.item(row, 1).text().strip()
+            is_enabled = self.custom_config_table.item(row, 2).checkState() == Qt.Checked
             
-            if command:  # 명령어가 빈 값이 아닌 경우만 저장
-                pre_commands.append({
-                    'command': command,
-                    'description': description,
+            if param:  # 파라미터가 빈 값이 아닌 경우만 저장
+                custom_configs.append({
+                    'param': param,
+                    'value': value,
                     'enabled': is_enabled
                 })
         
-        self.pre_commands = pre_commands
-        self.settings['pre_commands'] = pre_commands
+        # 설정 저장
+        self.custom_configs = custom_configs
+        self.settings['custom_configs'] = custom_configs
         self.save_settings()
-        self.show_status_message('사전 명령어가 저장되었습니다.')
-    
-    def load_pre_commands(self):
-        """저장된 사전 명령어 로드"""
-        self.pre_commands = self.settings.get('pre_commands', [])
+        
+        # 상태 바에 표시는 하지 않음 (너무 자주 표시될 수 있음)
+        # 설정이 변경될 때마다 명령어 자동 갱신
+        self.generate_command()
+        
+    def load_custom_configs(self):
+        """저장된 사용자 정의 설정 로드"""
+        # 로딩 중임을 표시하는 플래그 설정 (자동 저장 방지)
+        self._loading_custom_configs = True
+        
+        self.custom_configs = self.settings.get('custom_configs', [])
         
         # 테이블 초기화
-        self.pre_commands_table.setRowCount(0)
+        self.custom_config_table.setRowCount(0)
         
-        # 저장된 명령어 추가
-        for cmd in self.pre_commands:
-            row = self.pre_commands_table.rowCount()
-            self.pre_commands_table.insertRow(row)
+        # 저장된 설정 추가
+        for config in self.custom_configs:
+            row = self.custom_config_table.rowCount()
+            self.custom_config_table.insertRow(row)
             
-            # 명령어 열
-            cmd_item = QTableWidgetItem(cmd.get('command', ''))
-            self.pre_commands_table.setItem(row, 0, cmd_item)
+            # 파라미터 열
+            param_item = QTableWidgetItem(config.get('param', ''))
+            self.custom_config_table.setItem(row, 0, param_item)
             
-            # 설명 열
-            desc_item = QTableWidgetItem(cmd.get('description', ''))
-            self.pre_commands_table.setItem(row, 1, desc_item)
+            # 값 열
+            value_item = QTableWidgetItem(config.get('value', ''))
+            self.custom_config_table.setItem(row, 1, value_item)
             
             # 활성화 체크박스 열
             checkbox = QTableWidgetItem()
             checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            checkbox.setCheckState(Qt.Checked if cmd.get('enabled', True) else Qt.Unchecked)
-            self.pre_commands_table.setItem(row, 2, checkbox)
+            checkbox.setCheckState(Qt.Checked if config.get('enabled', True) else Qt.Unchecked)
+            self.custom_config_table.setItem(row, 2, checkbox)
+            
+        # 로딩 완료 플래그 해제
+        self._loading_custom_configs = False
     
     def add_custom_config_row(self):
         """사용자 정의 설정에 새 행 추가"""
@@ -488,52 +399,13 @@ class TrainingCommandGenerator(QMainWindow):
             self.custom_config_table.removeRow(row)
         
         self.show_status_message('선택한 행이 삭제되었습니다.')
+        # 행 삭제 후 자동 저장
+        self.auto_save_custom_configs()
     
     def save_custom_configs(self):
-        """사용자 정의 설정 저장"""
-        custom_configs = []
-        for row in range(self.custom_config_table.rowCount()):
-            param = self.custom_config_table.item(row, 0).text().strip()
-            value = self.custom_config_table.item(row, 1).text().strip()
-            is_enabled = self.custom_config_table.item(row, 2).checkState() == Qt.Checked
-            
-            if param:  # 파라미터가 빈 값이 아닌 경우만 저장
-                custom_configs.append({
-                    'param': param,
-                    'value': value,
-                    'enabled': is_enabled
-                })
-        
-        self.custom_configs = custom_configs
-        self.settings['custom_configs'] = custom_configs
-        self.save_settings()
+        """사용자 정의 설정 저장 (버튼 클릭 시)"""
+        self.auto_save_custom_configs()
         self.show_status_message('사용자 정의 설정이 저장되었습니다.')
-    
-    def load_custom_configs(self):
-        """저장된 사용자 정의 설정 로드"""
-        self.custom_configs = self.settings.get('custom_configs', [])
-        
-        # 테이블 초기화
-        self.custom_config_table.setRowCount(0)
-        
-        # 저장된 설정 추가
-        for config in self.custom_configs:
-            row = self.custom_config_table.rowCount()
-            self.custom_config_table.insertRow(row)
-            
-            # 파라미터 열
-            param_item = QTableWidgetItem(config.get('param', ''))
-            self.custom_config_table.setItem(row, 0, param_item)
-            
-            # 값 열
-            value_item = QTableWidgetItem(config.get('value', ''))
-            self.custom_config_table.setItem(row, 1, value_item)
-            
-            # 활성화 체크박스 열
-            checkbox = QTableWidgetItem()
-            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            checkbox.setCheckState(Qt.Checked if config.get('enabled', True) else Qt.Unchecked)
-            self.custom_config_table.setItem(row, 2, checkbox)
     
     def set_default_ini_path(self):
         """현재 선택된 INI 파일을 기본 경로로 설정"""
@@ -710,6 +582,8 @@ class TrainingCommandGenerator(QMainWindow):
         self.gpu_select_edit = QLineEdit()
         self.gpu_select_edit.setPlaceholderText("0,1,2,3")
         self.gpu_select_edit.setToolTip("사용할 GPU 인덱스를 쉼표로 구분하여 입력하세요. 예: 0,1,2")
+        # GPU 선택 값 변경 시 자동 저장
+        self.gpu_select_edit.textChanged.connect(self.auto_update_cuda_settings)
         
         gpu_select_layout.addWidget(gpu_select_label)
         gpu_select_layout.addWidget(self.gpu_select_edit)
@@ -720,6 +594,8 @@ class TrainingCommandGenerator(QMainWindow):
         self.gpu_memory_edit = QLineEdit()
         self.gpu_memory_edit.setPlaceholderText("4096")
         self.gpu_memory_edit.setToolTip("GPU 메모리 사용량을 MB 단위로 제한합니다. 비워두면 적용하지 않습니다.")
+        # GPU 메모리 값 변경 시 자동 저장
+        self.gpu_memory_edit.textChanged.connect(self.auto_update_cuda_settings)
         
         gpu_memory_layout.addWidget(gpu_memory_label)
         gpu_memory_layout.addWidget(self.gpu_memory_edit)
@@ -743,6 +619,10 @@ class TrainingCommandGenerator(QMainWindow):
         self.env_variables_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.env_variables_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         
+        # 자동 저장 시그널 연결
+        self.env_variables_table.cellChanged.connect(self.auto_save_env_variables)
+        self.env_variables_table.itemChanged.connect(self.auto_save_env_variables)
+        
         # 버튼 영역
         button_layout = QHBoxLayout()
         add_var_button = QPushButton('변수 추가')
@@ -762,15 +642,27 @@ class TrainingCommandGenerator(QMainWindow):
         
         # 저장된 환경 변수 로드
         self.load_env_variables()
+        
+    def auto_update_cuda_settings(self):
+        """GPU 설정 변경 시 자동 저장"""
+        # 로딩 중인 경우 무시
+        if hasattr(self, '_loading_env_variables') and self._loading_env_variables:
+            return
+            
+        # 값이 변경되면 자동으로 환경 변수 테이블에 적용
+        self.add_cuda_to_env_table()
     
     def add_cuda_to_env_table(self):
         """GPU 설정을 환경 변수 테이블에 추가"""
+        # 자동 저장 일시 중지
+        self._updating_cuda = True
+        
         # CUDA_VISIBLE_DEVICES 추가
         cuda_devices = self.gpu_select_edit.text().strip()
         if cuda_devices:
             # 기존 행이 있는지 확인
             for row in range(self.env_variables_table.rowCount()):
-                if self.env_variables_table.item(row, 0).text() == "CUDA_VISIBLE_DEVICES":
+                if self.env_variables_table.item(row, 0) and self.env_variables_table.item(row, 0).text() == "CUDA_VISIBLE_DEVICES":
                     # 기존 행 업데이트
                     self.env_variables_table.item(row, 1).setText(cuda_devices)
                     self.env_variables_table.item(row, 2).setCheckState(Qt.Checked)
@@ -795,7 +687,7 @@ class TrainingCommandGenerator(QMainWindow):
         memory_limit = self.gpu_memory_edit.text().strip()
         if memory_limit:
             for row in range(self.env_variables_table.rowCount()):
-                if self.env_variables_table.item(row, 0).text() == "TF_MEMORY_LIMIT":
+                if self.env_variables_table.item(row, 0) and self.env_variables_table.item(row, 0).text() == "TF_MEMORY_LIMIT":
                     # 기존 행 업데이트
                     self.env_variables_table.item(row, 1).setText(memory_limit)
                     self.env_variables_table.item(row, 2).setCheckState(Qt.Checked)
@@ -816,8 +708,12 @@ class TrainingCommandGenerator(QMainWindow):
                 checkbox.setCheckState(Qt.Checked)
                 self.env_variables_table.setItem(row, 2, checkbox)
         
-        self.show_status_message("GPU 설정이 환경 변수에 추가되었습니다.")
-        self.save_env_variables()
+        # 자동 저장 재개
+        self._updating_cuda = False
+        
+        # 사용자 피드백 제공하지 않음 (너무 자주 발생할 수 있음)
+        # 변경 내용 저장 및 명령어 갱신
+        self.auto_save_env_variables()
     
     def add_env_variable_row(self):
         """환경 변수에 새 행 추가"""
@@ -850,11 +746,25 @@ class TrainingCommandGenerator(QMainWindow):
             self.env_variables_table.removeRow(row)
         
         self.show_status_message('선택한 환경 변수가 삭제되었습니다.')
+        # 행 삭제 후 자동 저장
+        self.auto_save_env_variables()
     
-    def save_env_variables(self):
-        """환경 변수 저장"""
+    def auto_save_env_variables(self, *args):
+        """환경 변수 자동 저장 (셀 변경 시 호출)"""
+        # 테이블이 로드 중이거나 CUDA 설정 업데이트 중이면 저장하지 않음
+        if (hasattr(self, '_loading_env_variables') and self._loading_env_variables) or \
+           (hasattr(self, '_updating_cuda') and self._updating_cuda):
+            return
+            
+        # 환경 변수 저장
         env_variables = []
         for row in range(self.env_variables_table.rowCount()):
+            # 행에 아이템이 모두 존재하는지 확인
+            if (self.env_variables_table.item(row, 0) is None or 
+                self.env_variables_table.item(row, 1) is None or
+                self.env_variables_table.item(row, 2) is None):
+                continue
+                
             name = self.env_variables_table.item(row, 0).text().strip()
             value = self.env_variables_table.item(row, 1).text().strip()
             is_enabled = self.env_variables_table.item(row, 2).checkState() == Qt.Checked
@@ -866,13 +776,24 @@ class TrainingCommandGenerator(QMainWindow):
                     'enabled': is_enabled
                 })
         
+        # 설정 저장
         self.env_variables = env_variables
         self.settings['env_variables'] = env_variables
         self.save_settings()
+        
+        # 명령어 자동 갱신
+        self.generate_command()
+    
+    def save_env_variables(self):
+        """환경 변수 저장 (버튼 클릭 시)"""
+        self.auto_save_env_variables()
         self.show_status_message('환경 변수가 저장되었습니다.')
     
     def load_env_variables(self):
         """저장된 환경 변수 로드"""
+        # 로딩 중임을 표시하는 플래그 설정 (자동 저장 방지)
+        self._loading_env_variables = True
+        
         self.env_variables = self.settings.get('env_variables', [])
         
         # 테이블 초기화
@@ -902,7 +823,10 @@ class TrainingCommandGenerator(QMainWindow):
                 self.gpu_select_edit.setText(var.get('value', ''))
             elif var.get('name') == "TF_MEMORY_LIMIT" and var.get('enabled', True):
                 self.gpu_memory_edit.setText(var.get('value', ''))
-    
+                
+        # 로딩 완료 플래그 해제
+        self._loading_env_variables = False
+
     def setup_command_history_tab(self):
         """명령어 히스토리 탭 설정"""
         # 설명 레이블
@@ -1423,6 +1347,211 @@ class TrainingCommandGenerator(QMainWindow):
         dialog = ConfigFileLocationsDialog(self, config_files)
         dialog.exec_()
 
+    def setup_pre_commands_tab(self):
+        """사전 실행 명령어 탭 설정"""
+        # 설명 레이블
+        description_label = QLabel("학습 명령어 실행 전에 실행할 명령어를 설정합니다. (예: conda activate my_env)")
+        description_label.setWordWrap(True)
+        self.pre_commands_layout.addWidget(description_label)
+        
+        # 테이블 위젯 생성
+        self.pre_commands_table = QTableWidget()
+        self.pre_commands_table.setColumnCount(3)
+        self.pre_commands_table.setHorizontalHeaderLabels(['명령어', '설명', '활성화'])
+        self.pre_commands_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pre_commands_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.pre_commands_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        
+        # 자동 저장 시그널 연결
+        self.pre_commands_table.cellChanged.connect(self.auto_save_pre_commands)
+        self.pre_commands_table.itemChanged.connect(self.auto_save_pre_commands)
+        
+        # 버튼 영역
+        button_layout = QHBoxLayout()
+        add_cmd_button = QPushButton('명령어 추가')
+        add_cmd_button.clicked.connect(self.add_pre_command_row)
+        delete_cmd_button = QPushButton('명령어 삭제')
+        delete_cmd_button.clicked.connect(self.delete_pre_command_row)
+        move_up_button = QPushButton('위로 이동')
+        move_up_button.clicked.connect(lambda: self.move_pre_command(-1))
+        move_down_button = QPushButton('아래로 이동')
+        move_down_button.clicked.connect(lambda: self.move_pre_command(1))
+        save_cmd_button = QPushButton('명령어 저장')
+        save_cmd_button.clicked.connect(self.save_pre_commands)
+        
+        button_layout.addWidget(add_cmd_button)
+        button_layout.addWidget(delete_cmd_button)
+        button_layout.addWidget(move_up_button)
+        button_layout.addWidget(move_down_button)
+        button_layout.addWidget(save_cmd_button)
+        
+        # 레이아웃에 위젯 추가
+        self.pre_commands_layout.addWidget(self.pre_commands_table)
+        self.pre_commands_layout.addLayout(button_layout)
+        
+        # 저장된 사전 명령어 로드
+        self.load_pre_commands()
+    
+    def add_pre_command_row(self):
+        """사전 명령어에 새 행 추가"""
+        row = self.pre_commands_table.rowCount()
+        self.pre_commands_table.insertRow(row)
+        
+        # 명령어 열
+        cmd_item = QTableWidgetItem("")
+        self.pre_commands_table.setItem(row, 0, cmd_item)
+        
+        # 설명 열
+        desc_item = QTableWidgetItem("")
+        self.pre_commands_table.setItem(row, 1, desc_item)
+        
+        # 활성화 체크박스 열
+        checkbox = QTableWidgetItem()
+        checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        checkbox.setCheckState(Qt.Checked)
+        self.pre_commands_table.setItem(row, 2, checkbox)
+    
+    def delete_pre_command_row(self):
+        """선택한 사전 명령어 행 삭제"""
+        selected_rows = list(set([index.row() for index in self.pre_commands_table.selectedIndexes()]))
+        if not selected_rows:
+            self.show_status_message('삭제할 명령어를 선택해주세요.', True)
+            return
+            
+        # 선택한 행을 역순으로 삭제 (인덱스 변화 방지)
+        for row in sorted(selected_rows, reverse=True):
+            self.pre_commands_table.removeRow(row)
+        
+        self.show_status_message('선택한 명령어가 삭제되었습니다.')
+        # 행 삭제 후 자동 저장
+        self.auto_save_pre_commands()
+    
+    def move_pre_command(self, direction):
+        """사전 명령어 순서 이동 (위/아래)"""
+        selected_rows = list(set([index.row() for index in self.pre_commands_table.selectedIndexes()]))
+        if not selected_rows:
+            self.show_status_message('이동할 명령어를 선택해주세요.', True)
+            return
+        
+        # 한 번에 하나의 행만 이동 가능
+        if len(selected_rows) > 1:
+            self.show_status_message('한 번에 하나의 명령어만 이동할 수 있습니다.', True)
+            return
+        
+        current_row = selected_rows[0]
+        target_row = current_row + direction
+        
+        # 테이블 범위를 벗어나면 이동 불가
+        if target_row < 0 or target_row >= self.pre_commands_table.rowCount():
+            return
+        
+        # 자동 저장 일시 중지
+        self._moving_pre_command = True
+        
+        # 행 데이터 백업
+        command = self.pre_commands_table.item(current_row, 0).text()
+        description = self.pre_commands_table.item(current_row, 1).text()
+        is_enabled = self.pre_commands_table.item(current_row, 2).checkState()
+        
+        # 현재 행 삭제
+        self.pre_commands_table.removeRow(current_row)
+        
+        # 새 위치에 행 삽입
+        self.pre_commands_table.insertRow(target_row)
+        
+        # 데이터 복원
+        self.pre_commands_table.setItem(target_row, 0, QTableWidgetItem(command))
+        self.pre_commands_table.setItem(target_row, 1, QTableWidgetItem(description))
+        checkbox = QTableWidgetItem()
+        checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+        checkbox.setCheckState(is_enabled)
+        self.pre_commands_table.setItem(target_row, 2, checkbox)
+        
+        # 이동된 행 선택
+        self.pre_commands_table.selectRow(target_row)
+        
+        # 자동 저장 재개 및 저장 실행
+        self._moving_pre_command = False
+        self.auto_save_pre_commands()
+    
+    def auto_save_pre_commands(self, *args):
+        """사전 실행 명령어 자동 저장 (셀 변경 시 호출)"""
+        # 테이블이 로드 중이거나 행 이동 중이면 저장하지 않음
+        if (hasattr(self, '_loading_pre_commands') and self._loading_pre_commands) or \
+           (hasattr(self, '_moving_pre_command') and self._moving_pre_command):
+            return
+            
+        # 사전 명령어 저장
+        pre_commands = []
+        for row in range(self.pre_commands_table.rowCount()):
+            # 행에 아이템이 모두 존재하는지 확인
+            if (self.pre_commands_table.item(row, 0) is None or 
+                self.pre_commands_table.item(row, 1) is None or
+                self.pre_commands_table.item(row, 2) is None):
+                continue
+                
+            command = self.pre_commands_table.item(row, 0).text().strip()
+            description = self.pre_commands_table.item(row, 1).text().strip()
+            is_enabled = self.pre_commands_table.item(row, 2).checkState() == Qt.Checked
+            
+            if command:  # 명령어가 빈 값이 아닌 경우만 저장
+                pre_commands.append({
+                    'command': command,
+                    'description': description,
+                    'enabled': is_enabled
+                })
+        
+        # 설정 저장
+        self.pre_commands = pre_commands
+        self.settings['pre_commands'] = pre_commands
+        self.save_settings()
+        
+        # 명령어 자동 갱신
+        self.generate_command()
+    
+    def save_pre_commands(self):
+        """사전 명령어 저장 (버튼 클릭 시)"""
+        self.auto_save_pre_commands()
+        self.show_status_message('사전 명령어가 저장되었습니다.')
+    
+    def load_pre_commands(self):
+        """저장된 사전 명령어 로드"""
+        # 로딩 중임을 표시하는 플래그 설정 (자동 저장 방지)
+        self._loading_pre_commands = True
+        
+        self.pre_commands = self.settings.get('pre_commands', [])
+        
+        # 테이블 초기화
+        self.pre_commands_table.setRowCount(0)
+        
+        # 저장된 명령어 추가
+        for cmd in self.pre_commands:
+            row = self.pre_commands_table.rowCount()
+            self.pre_commands_table.insertRow(row)
+            
+            # 명령어 열
+            cmd_item = QTableWidgetItem(cmd.get('command', ''))
+            self.pre_commands_table.setItem(row, 0, cmd_item)
+            
+            # 설명 열
+            desc_item = QTableWidgetItem(cmd.get('description', ''))
+            self.pre_commands_table.setItem(row, 1, desc_item)
+            
+            # 활성화 체크박스 열
+            checkbox = QTableWidgetItem()
+            checkbox.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+            checkbox.setCheckState(Qt.Checked if cmd.get('enabled', True) else Qt.Unchecked)
+            self.pre_commands_table.setItem(row, 2, checkbox)
+            
+        # 로딩 완료 플래그 해제
+        self._loading_pre_commands = False
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    generator = TrainingCommandGenerator()
+    generator.show()
+    sys.exit(app.exec_())
+
 # 구성 관리 다이얼로그
 class ConfigManagerDialog(QDialog):
     def __init__(self, parent, csv_manager):
@@ -1506,9 +1635,7 @@ class ConfigManagerDialog(QDialog):
             # 작업 버튼
             button_widget = QWidget()
             button_layout = QHBoxLayout(button_widget)
-            # 여백 최소화
-            button_layout.setContentsMargins(2, 0, 2, 0)
-            button_layout.setSpacing(4)
+            button_layout.setContentsMargins(0, 0, 0, 0)
             
             change_idx_button = QPushButton('번호 변경')
             change_idx_button.clicked.connect(lambda _, c=config: self.change_config_idx(c))
@@ -1543,7 +1670,7 @@ class ConfigManagerDialog(QDialog):
         new_idx, ok = QInputDialog.getText(self, '구성 번호 변경', 
                                          f'구성 #{config}의 새 번호를 입력하세요:', 
                                          QLineEdit.Normal, '')
-        if not ok or not new_idx or new_idx == config:
+        if not ok:
             return
             
         # 숫자가 아니면 오류
@@ -1659,10 +1786,4 @@ class ConfigFileLocationsDialog(QDialog):
                 subprocess.call(['xdg-open', folder_path])
                 
         except Exception as e:
-            QMessageBox.warning(self, '오류', f'폴더를 열 수 없습니다: {str(e)}')
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    generator = TrainingCommandGenerator()
-    generator.show()
-    sys.exit(app.exec_()) 
+            QMessageBox.warning(self, '오류', f'폴더를 열 수 없습니다: {str(e)}') 

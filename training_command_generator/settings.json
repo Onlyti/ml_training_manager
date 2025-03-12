@@ -4,12 +4,17 @@
   "custom_configs": [
     {
       "param": "suffix",
-      "value": "TrajEmbSize8",
+      "value": "TrajEmbSize3",
       "enabled": true
     },
     {
       "param": "config",
       "value": "./config/multi_output_config.ini",
+      "enabled": true
+    },
+    {
+      "param": "model_id",
+      "value": "23",
       "enabled": true
     }
   ],
